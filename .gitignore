@@ -1,0 +1,7 @@
+.jj/
+
+.venv/
+uv.lock
+
+models/
+images/
