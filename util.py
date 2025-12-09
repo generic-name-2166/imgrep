@@ -1,9 +1,11 @@
-from transformers import AutoProcessor, AutoModelForVision2Seq
+from transformers import BlipProcessor, BlipForImageTextRetrieval
 
 
 def main() -> None:
-    processor = AutoProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
-    model = AutoModelForVision2Seq.from_pretrained("Salesforce/blip-image-captioning-base")
+    processor = BlipProcessor.from_pretrained("Salesforce/blip-itm-large-coco", use_fast=True)
+    print("processor")
+    model = BlipForImageTextRetrieval.from_pretrained("Salesforce/blip-itm-large-coco").to("cuda")
+    print("model")
 
     processor.save_pretrained("models/")
     model.save_pretrained("models/")
