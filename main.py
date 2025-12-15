@@ -1,9 +1,13 @@
 from pathlib import Path
 import sys
+import argparse
 
 from transformers import BlipProcessor, BlipForImageTextRetrieval
 import torch
 from PIL import Image
+from rich.console import Console
+from rich.table import Table
+from rich.progress import Progress, SpinnerColumn, TextColumn
 
 
 def has_text(processor, model, image_path: Path, search_text: str):
@@ -20,20 +24,50 @@ def has_text(processor, model, image_path: Path, search_text: str):
 
 
 def main() -> None:
-    if len(sys.argv) < 3:
-        print("Usage: python script.py <image_or_dir> <search_text>")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description="Search for text in images using BLIP model.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python main.py image.jpg "cat"
+  python main.py images/ "sunset" --threshold 0.5 --format table
+        """
+    )
+    parser.add_argument("path", help="Path to image file or directory")
+    parser.add_argument("text", help="Text to search for in images")
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.0,
+        help="Minimum score threshold to display results (default: 0.0)"
+    )
+    parser.add_argument(
+        "--format",
+        choices=["simple", "table"],
+        default="simple",
+        help="Output format (default: simple)"
+    )
 
-    input_path = Path(sys.argv[1])
-    search_text = sys.argv[2]
+    args = parser.parse_args()
 
-    processor = BlipProcessor.from_pretrained("models/", use_fast=True)
-    model = BlipForImageTextRetrieval.from_pretrained("models/")
+    input_path = Path(args.path)
+    search_text = args.text
+    threshold = args.threshold
+    output_format = args.format
+
+    console = Console()
+
+    with console.status("[bold green]Loading model...[/bold green]"):
+        processor = BlipProcessor.from_pretrained("models/", use_fast=True)
+        model = BlipForImageTextRetrieval.from_pretrained("models/")
+
+    results = []
 
     if input_path.is_file():
         # Single image
         score = has_text(processor, model, input_path, search_text)
-        print(f"{input_path.name}: {score:.3f}")
+        if score >= threshold:
+            results.append((input_path.name, score))
     elif input_path.is_dir():
         # Directory of images (recursive, common formats)
         image_paths = (
@@ -43,16 +77,42 @@ def main() -> None:
         )
 
         if not image_paths:
-            print("No images found in directory.")
+            console.print("[red]No images found in directory.[/red]")
             return
 
-        print(f"Processing {len(image_paths)} images for '{search_text}':")
-        for img_path in image_paths:
-            score = has_text(processor, model, img_path, search_text)
-            print(f"{img_path.name}: {score:.3f}")
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console
+        ) as progress:
+            task = progress.add_task(f"Processing {len(image_paths)} images for '{search_text}'...", total=len(image_paths))
+
+            for img_path in image_paths:
+                score = has_text(processor, model, img_path, search_text)
+                if score >= threshold:
+                    results.append((img_path.name, score))
+                progress.advance(task)
     else:
-        print("Error: Path is neither a file nor directory.")
+        console.print("[red]Error: Path is neither a file nor directory.[/red]")
         sys.exit(1)
+
+    if not results:
+        console.print("[yellow]No matches found above threshold.[/yellow]")
+        return
+
+    if output_format == "table":
+        table = Table(title=f"Image Text Search Results for '{search_text}'")
+        table.add_column("Image", style="cyan", no_wrap=True)
+        table.add_column("Score", style="magenta", justify="right")
+
+        for name, score in results:
+            table.add_row(name, f"{score:.3f}")
+
+        console.print(table)
+    else:
+        for name, score in results:
+            console.print(f"{name}: {score:.3f}")
+
 
 
 if __name__ == "__main__":
